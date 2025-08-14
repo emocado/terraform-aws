@@ -1,0 +1,248 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Combined CloudFormation template for creating IAM roles for Lambda, S3 Replication, CodeBuild, and ECS Task Execution.
+
+Parameters:
+  SourceBucketName:
+    Type: String
+    Description: (Update this after creating alb using terraform) Name of the S3 bucket used for replication which is the internal alb dns (e.g., internal-alb.example.com)
+    Default: 'internal-alb.example.com'
+  DestinationBucketName:
+    Type: String
+    Description: Name of the S3 bucket where objects will be replicated which is the custom domain name of your app (e.g., destination-bucket.example.com)
+  RepoBucketName:
+    Type: String
+    Description: Name of the S3 bucket used by CodeBuild. (e.g., codebuild-backend-managers-dev or codebuild-backend-managers-qa)
+  PermissionsBoundaryArn:
+    Type: String
+    Description: (Optional) ARN of the IAM permissions boundary policy to attach to roles.
+    Default: ''
+
+Conditions:
+  HasPermissionsBoundary:
+    !Not
+      - !Equals
+          - !Ref PermissionsBoundaryArn
+          - ''
+
+Resources:
+  LambdaBasicExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lambda_basic_execution_role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      PermissionsBoundary: !If
+        - HasPermissionsBoundary
+        - !Ref PermissionsBoundaryArn
+        - !Ref AWS::NoValue
+      # use aws managed policy for basic lambda execution
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  LambdaPresignRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lambda_presign_role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      PermissionsBoundary:
+        !If
+          - HasPermissionsBoundary
+          - !Ref PermissionsBoundaryArn
+          - !Ref AWS::NoValue
+      Policies:
+        - PolicyName: lambda-presign-inline
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: logs:CreateLogGroup
+                Resource: arn:aws:logs:::*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:::*
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub arn:aws:s3:::${RepoBucketName}/*
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:CreateNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                  - ec2:DescribeInstances
+                  - ec2:AttachNetworkInterface
+                  - ec2:DescribeSubnets
+                Resource: '*'
+
+  S3ReplicationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: s3-replication-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sts:AssumeRole
+      PermissionsBoundary: !If
+        - HasPermissionsBoundary
+        - !Ref PermissionsBoundaryArn
+        - !Ref AWS::NoValue
+
+  S3ReplicationPolicyBase:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: s3-replication-policy-base
+      Roles:
+        - !Ref S3ReplicationRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+              - s3:GetReplicationConfiguration
+              - s3:GetObjectVersion
+              - s3:GetObjectVersionForReplication
+              - s3:GetObjectVersionAcl
+              - s3:GetObjectVersionTagging
+              - s3:GetObjectRetention
+              - s3:GetObjectLegalHold
+            Resource:
+              - !Sub 'arn:aws:s3:::${SourceBucketName}'
+              - !Sub 'arn:aws:s3:::${SourceBucketName}/*'
+          - Effect: Allow
+            Action:
+              - s3:ReplicateObject
+              - s3:ReplicateDelete
+              - s3:ReplicateTags
+              - s3:ObjectOwnerOverrideToBucketOwner
+              - s3:GetObjectVersionTagging
+            Resource:
+              - !Sub 'arn:aws:s3:::${DestinationBucketName}'
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: codebuild-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: codebuild.amazonaws.com
+      PermissionsBoundary: !If
+        - HasPermissionsBoundary
+        - !Ref PermissionsBoundaryArn
+        - !Ref AWS::NoValue
+      Policies:
+        - PolicyName: codebuild-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${RepoBucketName}
+                  - !Sub arn:aws:s3:::${RepoBucketName}/*
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                  - ecr:ListImages
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  EventBridgeInvokeCodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: eventbridge-invoke-codebuild
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: events.amazonaws.com
+      PermissionsBoundary: !If
+        - HasPermissionsBoundary
+        - !Ref PermissionsBoundaryArn
+        - !Ref AWS::NoValue
+      Policies:
+        - PolicyName: eventbridge-invoke-codebuild
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: codebuild:StartBuild
+                Resource: '*'
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ecs-task-execution-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      PermissionsBoundary: !If
+        - HasPermissionsBoundary
+        - !Ref PermissionsBoundaryArn
+        - !Ref AWS::NoValue
+
+Outputs:
+  LambdaPresignRoleArn:
+    Description: ARN of the Lambda presign role
+    Value: !GetAtt LambdaPresignRole.Arn
+  ReplicationRoleArn:
+    Description: ARN of the S3 replication role
+    Value: !GetAtt S3ReplicationRole.Arn
+  CodeBuildRoleArn:
+    Description: ARN of the CodeBuild role
+    Value: !GetAtt CodeBuildRole.Arn
+  ECSTaskExecutionRoleArn:
+    Description: ARN of the ECS task execution role
+    Value: !GetAtt ECSTaskExecutionRole.Arn
+  EventBridgeInvokeCodeBuildRoleArn:
+    Description: ARN of the EventBridge role that can invoke CodeBuild
+    Value: !GetAtt EventBridgeInvokeCodeBuildRole.Arn
+  LambdaBasicExecutionRoleArn:
+    Description: ARN of the Lambda basic execution role
+    Value: !GetAtt LambdaBasicExecutionRole.Arn

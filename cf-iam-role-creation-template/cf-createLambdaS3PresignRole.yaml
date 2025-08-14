@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Lambda presign role with inline policy for CloudWatch Logs and S3 PutObject
+
+Parameters:
+  FilestoreBucketName:
+    Type: String
+    Description: Name of the S3 bucket to allow PutObject into
+
+  PermissionsBoundaryArn:
+    Type: String
+    Description: (Optional) ARN of the IAM permissions boundary policy to attach to roles
+    Default: ''
+
+Conditions:
+  HasPermissionsBoundary: 
+    !Not 
+      - !Equals 
+          - !Ref PermissionsBoundaryArn
+          - ''
+
+Resources:
+  LambdaPresignRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lambda_presign_role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      PermissionsBoundary: 
+        !If 
+          - HasPermissionsBoundary
+          - !Ref PermissionsBoundaryArn
+          - !Ref AWS::NoValue
+      Policies:
+        - PolicyName: lambda-presign-inline
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: logs:CreateLogGroup
+                Resource: arn:aws:logs:::*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:::*
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub arn:aws:s3:::${FilestoreBucketName}/*
+
+Outputs:
+  LambdaPresignRoleArn:
+    Description: ARN of the Lambda presign role
+    Value: !GetAtt LambdaPresignRole.Arn

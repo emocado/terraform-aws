@@ -1,0 +1,44 @@
+# Local Terraform directories (providers, modules, plugin cache)
+**/.terraform/
+
+# Terraform state files
+*.tfstate
+*.tfstate.*
+
+# State lock info (created automatically)
+.terraform.tfstate.lock.info
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Sensitive variable files (uncomment if you keep secrets locally)
+# *.tfvars
+# *.tfvars.json
+# *.auto.tfvars
+# *.auto.tfvars.json
+
+# Override files (local-only customizations)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Plan files (binary or custom-named outputs from `terraform plan -out=...`)
+*.tfplan
+*.plan
+
+# Terraform CLI configuration files (local)
+.terraformrc
+terraform.rc
+
+# OS/editor noise (optional; add what you use)
+# .DS_Store
+# .vscode/
+# .idea/
+
+# http backend configuration (if using)
+*.config
+
+terraform.tfvars
+*.zip

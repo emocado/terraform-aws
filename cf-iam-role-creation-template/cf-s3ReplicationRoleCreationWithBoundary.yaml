@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: IAM role and policy for S3 replication (non-KMS) with optional permissions boundary
+
+Parameters:
+  SourceBucketName:
+    Type: String
+    Description: Name of the S3 bucket used for replication which is the internal alb dns (e.g., internal-alb.example.com)
+
+  DestinationBucketName:
+    Type: String
+    Description: Name of the S3 bucket where objects will be replicated which is the custom domain name of your app (e.g., destination-bucket.example.com)
+
+  PermissionsBoundaryArn:
+    Type: String
+    Description: (Optional) ARN of the IAM permissions boundary policy to attach to roles
+    Default: ''
+
+Conditions:
+  HasPermissionsBoundary: !Not [ !Equals [ !Ref PermissionsBoundaryArn, '' ] ]
+
+Resources:
+  S3ReplicationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: s3-replication-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sts:AssumeRole
+      PermissionsBoundary: !If
+        - HasPermissionsBoundary
+        - !Ref PermissionsBoundaryArn
+        - !Ref AWS::NoValue
+
+  S3ReplicationPolicyBase:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: s3-replication-policy-base
+      Roles:
+        - !Ref S3ReplicationRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+              - s3:GetReplicationConfiguration
+              - s3:GetObjectVersion
+              - s3:GetObjectVersionForReplication
+              - s3:GetObjectVersionAcl
+              - s3:GetObjectVersionTagging
+              - s3:GetObjectRetention
+              - s3:GetObjectLegalHold
+            Resource:
+              - !Sub 'arn:aws:s3:::${SourceBucketName}'
+              - !Sub 'arn:aws:s3:::${SourceBucketName}/*'
+          - Effect: Allow
+            Action:
+              - s3:ReplicateObject
+              - s3:ReplicateDelete
+              - s3:ReplicateTags
+              - s3:ObjectOwnerOverrideToBucketOwner
+              - s3:GetObjectVersionTagging
+            Resource:
+              - !Sub 'arn:aws:s3:::${DestinationBucketName}'
+
+Outputs:
+  ReplicationRoleArn:
+    Description: ARN of the S3 replication role
+    Value: !GetAtt S3ReplicationRole.Arn

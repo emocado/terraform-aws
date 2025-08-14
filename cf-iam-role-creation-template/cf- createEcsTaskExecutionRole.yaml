@@ -1,0 +1,35 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECS task execution role with AWS managed policy attachment
+
+Parameters:
+    PermissionsBoundaryArn:
+        Type: String
+        Description: (Optional) ARN of the IAM permissions boundary policy to attach to roles
+        Default: ''
+
+Conditions:
+    HasPermissionsBoundary: !Not [ !Equals [ !Ref PermissionsBoundaryArn, '' ] ]
+
+Resources:
+    ECSTaskExecutionRole:
+        Type: AWS::IAM::Role
+        Properties:
+            RoleName: ecs-task-execution-role
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                        Service: ecs-tasks.amazonaws.com
+                    Action: sts:AssumeRole
+            ManagedPolicyArns:
+                - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+            PermissionsBoundary: !If
+                - HasPermissionsBoundary
+                - !Ref PermissionsBoundaryArn
+                - !Ref AWS::NoValue
+
+Outputs:
+    ECSTaskExecutionRoleArn:
+        Description: ARN of the ECS task execution role
+        Value: !GetAtt ECSTaskExecutionRole.Arn

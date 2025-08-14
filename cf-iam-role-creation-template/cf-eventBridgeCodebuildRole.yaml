@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: IAM role for EventBridge to invoke CodeBuild StartBuild
+
+Parameters:
+  PermissionsBoundaryArn:
+    Type: String
+    Description: (Optional) ARN of the IAM permissions boundary policy to attach to roles
+    Default: ''
+
+Conditions:
+  HasPermissionsBoundary: !Not
+    - !Equals
+      - !Ref PermissionsBoundaryArn
+      - ''
+
+Resources:
+  EventBridgeInvokeCodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: eventbridge-invoke-codebuild
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: events.amazonaws.com
+      PermissionsBoundary: !If
+        - HasPermissionsBoundary
+        - !Ref PermissionsBoundaryArn
+        - !Ref AWS::NoValue
+      Policies:
+        - PolicyName: eventbridge-invoke-codebuild
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: codebuild:StartBuild
+                Resource: '*'
+
+Outputs:
+  EventBridgeInvokeCodeBuildRoleArn:
+    Description: ARN of the EventBridge role that can invoke CodeBuild
+    Value: !GetAtt EventBridgeInvokeCodeBuildRole.Arn

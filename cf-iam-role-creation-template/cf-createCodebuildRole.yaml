@@ -1,0 +1,83 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: IAM role and inline policy for AWS CodeBuild with S3, ECR, and
+  CloudWatch Logs access
+
+Parameters:
+  RepoBucketName:
+    Type: String
+    Description: Name of the S3 bucket used by CodeBuild (e.g., my-repo-bucket)
+
+  PermissionsBoundaryArn:
+    Type: String
+    Description: (Optional) ARN of the IAM permissions boundary policy to attach to roles
+    Default: ''
+
+Conditions:
+  HasPermissionsBoundary: !Not
+    - !Equals
+      - !Ref PermissionsBoundaryArn
+      - ''
+
+Resources:
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: codebuild-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: codebuild.amazonaws.com
+      PermissionsBoundary: !If
+        - HasPermissionsBoundary
+        - !Ref PermissionsBoundaryArn
+        - !Ref AWS::NoValue
+      Policies:
+        - PolicyName: codebuild-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # S3 access to the repo bucket and its objects
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${RepoBucketName}
+                  - !Sub arn:aws:s3:::${RepoBucketName}/*
+
+              # ECR auth token
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+
+              # ECR push/pull actions
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                  - ecr:ListImages
+                Resource: '*'
+
+              # CloudWatch Logs permissions
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+Outputs:
+  CodeBuildRoleArn:
+    Description: ARN of the CodeBuild role
+    Value: !GetAtt CodeBuildRole.Arn
