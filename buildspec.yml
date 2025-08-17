@@ -1,0 +1,40 @@
+version: 0.2
+phases:
+  install:
+    commands:
+      - echo "install step..."
+      - apt-get update -y
+  pre_build:
+    commands:
+      - echo "logging in to AWS ECR..."
+      - ECR_REPOSITORY_URI="${ECR_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${IMAGE_REPO_NAME}"
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URI
+      # Script to get the latest semantic-versioned tag and increment patch version
+      - |
+        /bin/bash -c '
+        echo "Fetching current version tags from ECR..."
+        TAGS=$(aws ecr list-images --repository-name $IMAGE_REPO_NAME --region $AWS_REGION --query "imageIds[*].imageTag" --output text | tr "\t" "\n")
+        SEMVER_TAGS=$(echo "$TAGS" | grep -E "^[0-9]+\.[0-9]+\.[0-9]+$" | sort -t. -k1,1n -k2,2n -k3,3n)
+        LATEST_TAG=$(echo "$SEMVER_TAGS" | tail -n 1)
+        if [[ -z "$LATEST_TAG" ]]; then
+          IMAGE_TAG="0.0.1"
+        else
+          IFS="." read -r MAJOR MINOR PATCH <<< "$LATEST_TAG"
+          PATCH=$((PATCH + 1))
+          IMAGE_TAG="${MAJOR}.${MINOR}.${PATCH}"
+        fi
+        echo "Building image with tag: $IMAGE_TAG"
+        export IMAGE_TAG
+        echo "IMAGE_TAG=$IMAGE_TAG" > /tmp/image_tag_env
+        '
+      - export $(cat /tmp/image_tag_env | xargs)
+  build:
+    commands:
+      - echo "build Docker image started on `date`"
+      - docker build -t $IMAGE_REPO_NAME .
+      - docker tag $IMAGE_REPO_NAME:latest $ECR_REPOSITORY_URI:$IMAGE_TAG
+  post_build:
+    commands:
+      - echo "build Docker image complete `date`"
+      - echo "push Docker image to ECR..."
+      - docker push $ECR_REPOSITORY_URI:$IMAGE_TAG
