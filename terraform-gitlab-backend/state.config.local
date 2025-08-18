@@ -1,0 +1,5 @@
+address="https://gitlab.com/api/v4/projects/<aws_account_id>/terraform/state/prod"
+lock_address="https://gitlab.com/api/v4/projects/<aws_account_id>/terraform/state/prod/lock"
+unlock_address="https://gitlab.com/api/v4/projects/<aws_account_id>/terraform/state/prod/lock"
+username="GITLAB_USERNAME"
+password="GITLAB_ACCESS_TOKEN"
